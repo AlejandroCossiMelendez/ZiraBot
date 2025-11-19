@@ -1,3 +1,11 @@
+import { exec } from 'child_process';
+import { promisify } from 'util';
+import * as fs from 'fs';
+import * as path from 'path';
+import * as os from 'os';
+
+const execAsync = promisify(exec);
+
 export interface OllamaMessage {
   role: 'user' | 'assistant' | 'system';
   content: string;
@@ -163,7 +171,9 @@ ${strictInstructions}
   }
 
   /**
-   * Crea un modelo personalizado en Ollama (a través de Open WebUI proxy o directamente)
+   * Crea un modelo personalizado en Ollama
+   * Si estamos en el mismo servidor, usa el comando `ollama create` directamente
+   * De lo contrario, usa la API REST
    */
   async createCustomModel(
     modelName: string,
@@ -174,96 +184,157 @@ ${strictInstructions}
       // Construir el Modelfile
       const modelfileContent = this.buildModelfileContent(baseModel, systemPrompt);
 
-      // Usar la API directa de Ollama si estamos en el mismo servidor
-      // o el proxy de Ollama a través de Open WebUI
-      const ollamaApiUrl = this.useDirectOllama
-        ? `${this.baseUrl}/api/create`
-        : this.isOpenWebUI
-        ? `${this.baseUrl}/ollama/api/create`
-        : `${this.baseUrl}/api/create`;
-
       // Log detallado siempre (también en producción para debugging)
       console.log('📦 Creating custom model:', modelName);
       console.log('  Base model:', baseModel);
-      console.log('  API endpoint:', ollamaApiUrl);
+      console.log('  Using Direct Ollama (same server):', this.useDirectOllama ? '✅ YES' : '❌ NO');
       console.log('  Modelfile content (first 500 chars):', modelfileContent.substring(0, 500));
       console.log('  Full Modelfile:', modelfileContent);
       console.log('  System prompt length:', systemPrompt.length);
 
-      // Crear el modelo usando la API de Ollama
-      // La API requiere 'from' (modelo base) además del 'modelfile'
-      const requestBody = {
-        name: modelName,
-        from: baseModel, // Modelo base requerido por la API
-        modelfile: modelfileContent,
-      };
-      
-      console.log('  Request body:', JSON.stringify(requestBody, null, 2));
-      
-      const response = await fetch(ollamaApiUrl, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(requestBody),
-      });
-
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Error creating model. Status:', response.status);
-        console.error('❌ Error response:', errorText);
-        
-        // Si el modelo ya existe, intentar actualizarlo eliminándolo primero
-        if (response.status === 409 || errorText.includes('already exists')) {
-          console.log('⚠️ Model already exists, attempting to update...');
-          
-          // Intentar eliminar el modelo existente
-          await this.deleteCustomModel(modelName);
-          
-          // Esperar un momento antes de reintentar
-          await new Promise(resolve => setTimeout(resolve, 1000));
-          
-          // Reintentar crear el modelo
-          console.log('🔄 Retrying model creation...');
-          const retryResponse = await fetch(ollamaApiUrl, {
-            method: 'POST',
-            headers: this.getHeaders(),
-            body: JSON.stringify(requestBody),
-          });
-
-          if (!retryResponse.ok) {
-            const retryErrorText = await retryResponse.text();
-            console.error('❌ Error creating model after retry. Status:', retryResponse.status);
-            console.error('❌ Error response:', retryErrorText);
-            return { success: false, error: retryErrorText };
-          }
-          
-          console.log('✅ Model created successfully after retry:', modelName);
-        } else {
-          return { success: false, error: errorText };
-        }
+      // Si estamos en el mismo servidor, usar el comando `ollama create` directamente
+      // Esto aplica correctamente el SYSTEM prompt del Modelfile
+      if (this.useDirectOllama) {
+        return await this.createModelWithCommand(modelName, modelfileContent);
       }
 
-      console.log('✅ Custom model created successfully:', modelName);
-      
-      // Verificar que el modelo se creó correctamente y tiene el SYSTEM prompt
-      await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar a que Ollama procese el modelo
-      const verification = await this.getModelModelfile(modelName);
-      if (verification.success && verification.modelfile) {
-        if (verification.modelfile.includes('SYSTEM')) {
-          console.log('✅ Verified: Modelfile contains SYSTEM prompt');
-          console.log('  Modelfile preview:', verification.modelfile.substring(0, 300));
-        } else {
-          console.warn('⚠️ WARNING: Modelfile does not contain SYSTEM prompt!');
-          console.warn('  Modelfile content:', verification.modelfile);
-        }
-      } else {
-        console.warn('⚠️ Could not verify Modelfile:', verification.error);
-      }
-
-      return { success: true };
+      // Si no estamos en el mismo servidor, usar la API REST
+      return await this.createModelWithAPI(modelName, baseModel, modelfileContent);
     } catch (error: any) {
       console.error('❌ Error creating custom model:', error);
       return { success: false, error: error.message || 'Unknown error' };
     }
+  }
+
+  /**
+   * Crea un modelo usando el comando `ollama create` directamente
+   * Esto funciona mejor y aplica correctamente el SYSTEM prompt
+   */
+  private async createModelWithCommand(
+    modelName: string,
+    modelfileContent: string
+  ): Promise<{ success: boolean; error?: string }> {
+    try {
+      // Crear un archivo temporal con el Modelfile
+      const tempDir = os.tmpdir();
+      const tempFilePath = path.join(tempDir, `modelfile_${modelName}_${Date.now()}.txt`);
+      
+      console.log('📝 Writing Modelfile to temp file:', tempFilePath);
+      fs.writeFileSync(tempFilePath, modelfileContent, 'utf-8');
+
+      try {
+        // Eliminar el modelo si ya existe
+        try {
+          await execAsync(`ollama rm ${modelName}`);
+          console.log('🗑️ Deleted existing model:', modelName);
+          await new Promise(resolve => setTimeout(resolve, 1000));
+        } catch (e) {
+          // No es un error si el modelo no existe
+          console.log('ℹ️ Model does not exist, will create new one');
+        }
+
+        // Crear el modelo usando el comando ollama create
+        console.log('🦙 Executing: ollama create', modelName, '-f', tempFilePath);
+        const { stdout, stderr } = await execAsync(`ollama create ${modelName} -f ${tempFilePath}`);
+        
+        if (stderr && !stderr.includes('success')) {
+          console.warn('⚠️ Warning from ollama create:', stderr);
+        }
+        
+        console.log('✅ Model created successfully with command:', modelName);
+        console.log('  Output:', stdout);
+
+        // Verificar que el modelo se creó correctamente y tiene el SYSTEM prompt
+        await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar a que Ollama procese el modelo
+        const verification = await this.getModelModelfile(modelName);
+        if (verification.success && verification.modelfile) {
+          if (verification.modelfile.includes('SYSTEM')) {
+            console.log('✅ Verified: Modelfile contains SYSTEM prompt');
+            console.log('  Modelfile preview:', verification.modelfile.substring(0, 300));
+          } else {
+            console.warn('⚠️ WARNING: Modelfile does not contain SYSTEM prompt!');
+            console.warn('  Modelfile content:', verification.modelfile);
+          }
+        } else {
+          console.warn('⚠️ Could not verify Modelfile:', verification.error);
+        }
+
+        return { success: true };
+      } finally {
+        // Limpiar el archivo temporal
+        try {
+          fs.unlinkSync(tempFilePath);
+          console.log('🧹 Cleaned up temp file:', tempFilePath);
+        } catch (e) {
+          console.warn('⚠️ Could not delete temp file:', tempFilePath);
+        }
+      }
+    } catch (error: any) {
+      console.error('❌ Error creating model with command:', error);
+      return { success: false, error: error.message || 'Unknown error' };
+    }
+  }
+
+  /**
+   * Crea un modelo usando la API REST (para Open WebUI o servidores remotos)
+   */
+  private async createModelWithAPI(
+    modelName: string,
+    baseModel: string,
+    modelfileContent: string
+  ): Promise<{ success: boolean; error?: string }> {
+    const ollamaApiUrl = this.isOpenWebUI
+      ? `${this.baseUrl}/ollama/api/create`
+      : `${this.baseUrl}/api/create`;
+
+    console.log('  API endpoint:', ollamaApiUrl);
+
+    const requestBody = {
+      name: modelName,
+      from: baseModel,
+      modelfile: modelfileContent,
+    };
+    
+    console.log('  Request body:', JSON.stringify(requestBody, null, 2));
+    
+    const response = await fetch(ollamaApiUrl, {
+      method: 'POST',
+      headers: this.getHeaders(),
+      body: JSON.stringify(requestBody),
+    });
+
+    if (!response.ok) {
+      const errorText = await response.text();
+      console.error('❌ Error creating model. Status:', response.status);
+      console.error('❌ Error response:', errorText);
+      
+      if (response.status === 409 || errorText.includes('already exists')) {
+        console.log('⚠️ Model already exists, attempting to update...');
+        await this.deleteCustomModel(modelName);
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        
+        console.log('🔄 Retrying model creation...');
+        const retryResponse = await fetch(ollamaApiUrl, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(requestBody),
+        });
+
+        if (!retryResponse.ok) {
+          const retryErrorText = await retryResponse.text();
+          console.error('❌ Error creating model after retry. Status:', retryResponse.status);
+          console.error('❌ Error response:', retryErrorText);
+          return { success: false, error: retryErrorText };
+        }
+        
+        console.log('✅ Model created successfully after retry:', modelName);
+      } else {
+        return { success: false, error: errorText };
+      }
+    }
+
+    console.log('✅ Custom model created successfully:', modelName);
+    return { success: true };
   }
 
   /**
@@ -347,13 +418,10 @@ ${strictInstructions}
       // Usar API directa de Ollama o proxy para modelos personalizados
       let messages = request.messages || (request.prompt ? [{ role: 'user', content: request.prompt }] : []);
       
-      // Si es modelo personalizado y estamos usando API directa, confiar en el Modelfile
-      // Si usamos proxy de Open WebUI, siempre enviar system prompt por seguridad
-      if (isCustomModel && this.useDirectOllama && skipSystemPrompt) {
-        // Modelo personalizado en API directa: confiar en Modelfile, no enviar system prompt
-        messages = messages.filter((msg: OllamaMessage) => msg.role !== 'system');
-      }
-      // Si no, mantener todos los mensajes (incluyendo system)
+      // IMPORTANTE: Siempre mantener el system prompt en los mensajes
+      // Ollama no aplica correctamente el SYSTEM prompt del Modelfile cuando se crea vía API REST
+      // Por lo tanto, siempre lo enviamos explícitamente en cada petición
+      // No filtrar mensajes system - siempre mantenerlos
       
       // Asegurar que los valores numéricos sean números, no strings
       const temperature = typeof request.options?.temperature === 'string' 
@@ -378,17 +446,15 @@ ${strictInstructions}
         : `${this.baseUrl}/ollama/api/chat`;
       
       if (this.shouldLog()) {
-        console.log(isCustomModel && this.useDirectOllama && skipSystemPrompt
-          ? '🦙 Using Direct Ollama API (Custom Model with Modelfile):'
-          : '🦙 Using Ollama API (Custom Model):', endpoint);
+        console.log('🦙 Using Ollama API:', endpoint);
         console.log('📤 Payload:', {
           model: ollamaPayload.model,
           messagesCount: ollamaPayload.messages.length,
           temperature: temperature,
           num_predict: numPredict,
           customModel: isCustomModel ? '✅ YES' : '❌ NO',
-          usingModelfile: isCustomModel && this.useDirectOllama && skipSystemPrompt ? '✅ YES (Modelfile only)' : '❌ NO (with explicit system)',
           hasSystemPrompt: messages.some((m: OllamaMessage) => m.role === 'system'),
+          systemPromptPreview: messages.find((m: OllamaMessage) => m.role === 'system')?.content?.substring(0, 150) || 'none',
         });
       }
 

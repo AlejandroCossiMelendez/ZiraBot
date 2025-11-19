@@ -105,19 +105,16 @@ ${baseSystemPrompt}
 Recuerda: Solo responde con información del conocimiento proporcionado arriba. Si no está ahí, di que no lo sabes.`
       : 'You are a helpful assistant. Only respond based on the information explicitly provided to you. If you do not have information about something, clearly state "I do not have information about that" or "I do not know".';
     
-    // Verificar si estamos usando API directa de Ollama (mismo servidor)
-    // Si es así y tenemos modelo personalizado, confiar en el Modelfile
+    // IMPORTANTE: Siempre enviar el system prompt explícitamente
+    // Aunque ahora usamos el comando `ollama create` directamente (que aplica correctamente el SYSTEM),
+    // enviamos el system prompt explícitamente en cada petición como respaldo para garantizar que siempre se aplique
     const config = ollama.getConfig();
-    const shouldUseModelfileOnly = usingCustomModel && config.useDirectOllama;
     
-    // Si usamos modelo personalizado en API directa, confiar solo en Modelfile
-    // Si usamos Open WebUI o modelo normal, siempre enviar system prompt
-    const ollamaMessages = shouldUseModelfileOnly
-      ? conversationHistory // Solo historial, el Modelfile tiene el system prompt
-      : [
-          { role: 'system', content: systemPrompt },
-          ...conversationHistory
-        ];
+    // Siempre incluir el system prompt en los mensajes
+    const ollamaMessages = [
+      { role: 'system', content: systemPrompt },
+      ...conversationHistory
+    ];
 
     // Log de configuración (siempre en desarrollo, o si ENABLE_LOGS está habilitado)
     const shouldLog = process.env.NODE_ENV !== 'production' || process.env.ENABLE_LOGS === 'true';
@@ -125,13 +122,13 @@ Recuerda: Solo responde con información del conocimiento proporcionado arriba. 
       console.log('💬 Chat Request:');
       console.log('  Bot ID:', bot_id);
       console.log('  Model:', modelToUse);
-      console.log('  Custom Model:', usingCustomModel ? `✅ YES ${shouldUseModelfileOnly ? '(Modelfile only)' : '(with explicit system)'}` : '❌ NO');
+      console.log('  Custom Model:', usingCustomModel ? '✅ YES (using explicit system prompt)' : '❌ NO');
       console.log('  Using Direct Ollama:', config.useDirectOllama ? '✅ YES (Same Server)' : '❌ NO');
       console.log('  API:', config.useDirectOllama ? '🦙 Direct Ollama' : (config.isOpenWebUI ? '🌐 Open WebUI (Cloud)' : '🦙 Local Ollama'));
       console.log('  Base URL:', config.baseUrl);
       console.log('  Messages count:', ollamaMessages.length);
       console.log('  History messages:', conversationHistory.length);
-      console.log('  Using Modelfile only:', shouldUseModelfileOnly ? '✅ YES' : '❌ NO');
+      console.log('  System prompt (first 200 chars):', systemPrompt.substring(0, 200));
     }
 
     // Generar respuesta con Ollama
@@ -144,8 +141,8 @@ Recuerda: Solo responde con información del conocimiento proporcionado arriba. 
       ? parseInt(bot.max_tokens, 10)
       : (bot.max_tokens ?? 2000);
 
-    // Si usamos modelo personalizado en API directa, skipSystemPrompt=true para usar solo Modelfile
-    // De lo contrario, siempre enviar system prompt
+    // Siempre enviar el system prompt explícitamente (no confiar en Modelfile)
+    // skipSystemPrompt=false para que siempre se incluya el system prompt en los mensajes
     const response = await ollama.generate({
       model: modelToUse,
       messages: ollamaMessages as any,
@@ -153,7 +150,7 @@ Recuerda: Solo responde con información del conocimiento proporcionado arriba. 
         temperature: temperature,
         num_predict: maxTokens
       }
-    }, shouldUseModelfileOnly); // Usar Modelfile solo si estamos en API directa con modelo personalizado
+    }, false); // Siempre false - siempre enviar system prompt explícitamente
 
     const assistantMessage = response.message?.content || '';
 
