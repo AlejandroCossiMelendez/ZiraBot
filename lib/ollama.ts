@@ -452,6 +452,11 @@ ${strictInstructions}
         options: {
           temperature: temperature,
           num_predict: numPredict,
+          // Optimizaciones para respuestas más rápidas
+          num_ctx: 2048, // Reducir contexto para acelerar (por defecto es 2048, pero lo especificamos)
+          repeat_penalty: 1.1, // Penalizar repeticiones para respuestas más concisas
+          top_k: 40, // Reducir top_k para acelerar la generación
+          top_p: 0.9, // Mantener top_p para calidad
         },
       };
 
@@ -472,34 +477,50 @@ ${strictInstructions}
         });
       }
 
-      const response = await fetch(endpoint, {
-        method: 'POST',
-        headers: this.getHeaders(),
-        body: JSON.stringify(ollamaPayload),
-      });
+      // Crear un AbortController para timeout de 15 segundos
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
 
-      if (!response.ok) {
-        const errorText = await response.text();
-        console.error('❌ Ollama API Error:', response.status, errorText);
-        throw new Error(`Ollama API error: ${response.statusText} - ${errorText}`);
-      }
+      try {
+        const response = await fetch(endpoint, {
+          method: 'POST',
+          headers: this.getHeaders(),
+          body: JSON.stringify(ollamaPayload),
+          signal: controller.signal,
+        });
+        
+        clearTimeout(timeoutId);
 
-      const data = await response.json();
-      
-      if (this.shouldLog()) {
-        console.log('✅ Ollama Response received');
+        if (!response.ok) {
+          const errorText = await response.text();
+          console.error('❌ Ollama API Error:', response.status, errorText);
+          throw new Error(`Ollama API error: ${response.statusText} - ${errorText}`);
+        }
+
+        const data = await response.json();
+        
+        if (this.shouldLog()) {
+          console.log('✅ Ollama Response received');
+        }
+        
+        // Convertir respuesta de Ollama al formato esperado
+        return {
+          model: data.model || request.model,
+          created_at: data.created_at || new Date().toISOString(),
+          message: {
+            role: data.message?.role || 'assistant',
+            content: data.message?.content || '',
+          },
+          done: data.done ?? true,
+        };
+      } catch (error: any) {
+        clearTimeout(timeoutId);
+        if (error.name === 'AbortError') {
+          console.error('⏱️ Request timeout after 15 seconds');
+          throw new Error('La solicitud tardó demasiado tiempo. Por favor, intenta con una pregunta más corta o reduce max_tokens.');
+        }
+        throw error;
       }
-      
-      // Convertir respuesta de Ollama al formato esperado
-      return {
-        model: data.model || request.model,
-        created_at: data.created_at || new Date().toISOString(),
-        message: {
-          role: data.message?.role || 'assistant',
-          content: data.message?.content || '',
-        },
-        done: data.done ?? true,
-      };
     }
     
     // Si no usamos modelo personalizado y estamos en Open WebUI

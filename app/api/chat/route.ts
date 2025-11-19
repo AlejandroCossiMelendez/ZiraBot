@@ -186,8 +186,13 @@ ${baseSystemPrompt}
       model: bot.model
     });
 
-  } catch (error) {
+  } catch (error: any) {
     console.error('Chat error:', error);
-    return NextResponse.json({ error: 'Error processing chat request' }, { status: 500 });
+    const errorMessage = error.message || 'Error processing chat request';
+    return NextResponse.json({ 
+      error: errorMessage.includes('timeout') || errorMessage.includes('tardó demasiado')
+        ? 'La solicitud tardó demasiado tiempo. Por favor, intenta con una pregunta más corta.'
+        : 'Error processing chat request'
+    }, { status: 500 });
   }
 }
