@@ -69,10 +69,11 @@ export async function POST(request: Request) {
       [conversationId, message]
     );
 
-    // Obtener historial reciente para contexto (últimos 10 mensajes)
+    // Obtener historial reciente para contexto (últimos 5 mensajes para reducir tiempo de respuesta)
     // IMPORTANTE: Ordenar por DESC para obtener los mensajes más recientes
+    // Reducido de 10 a 5 para acelerar el procesamiento
     const history = await query(
-      "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 10",
+      "SELECT role, content FROM messages WHERE conversation_id = ? ORDER BY created_at DESC LIMIT 5",
       [conversationId]
     );
     

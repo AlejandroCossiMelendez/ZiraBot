@@ -452,13 +452,14 @@ ${strictInstructions}
         options: {
           temperature: temperature,
           num_predict: numPredict,
-          // Optimizaciones para respuestas más rápidas
-          num_ctx: 4096, // Contexto suficiente pero no excesivo
+          // Optimizaciones agresivas para respuestas más rápidas
+          num_ctx: 2048, // Reducir contexto para acelerar (suficiente para 5 mensajes + system prompt)
           repeat_penalty: 1.1, // Penalizar repeticiones para respuestas más concisas
-          top_k: 40, // Reducir top_k para acelerar la generación
-          top_p: 0.9, // Mantener top_p para calidad
-          // Parámetros adicionales para acelerar
-          num_thread: undefined, // Dejar que Ollama use todos los threads disponibles
+          top_k: 20, // Reducir top_k significativamente para acelerar (de 40 a 20)
+          top_p: 0.85, // Reducir top_p ligeramente para acelerar (de 0.9 a 0.85)
+          // Parámetros adicionales para modelos pequeños como llama3.2:1b
+          tfs_z: 1.0, // Tail free sampling (acelera generación)
+          typical_p: 1.0, // Typical sampling (acelera generación)
         },
       };
 
