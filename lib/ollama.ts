@@ -48,6 +48,11 @@ export class OllamaClient {
   private isOpenWebUI: boolean = false;
   private useDirectOllama: boolean = false;
 
+  // Helper para determinar si se deben mostrar logs
+  private shouldLog(): boolean {
+    return process.env.NODE_ENV !== 'production' || process.env.ENABLE_LOGS === 'true';
+  }
+
   constructor(baseUrl?: string, apiKey?: string) {
     // Priorizar API directa de Ollama si está disponible (mismo servidor)
     // Si OLLAMA_DIRECT_URL está configurado, usarlo directamente
@@ -80,8 +85,8 @@ export class OllamaClient {
       this.isOpenWebUI = hasOpenWebUIEnv || isNotLocalOllama;
     }
     
-    // Log de configuración (solo en desarrollo)
-    if (process.env.NODE_ENV !== 'production') {
+    // Log de configuración (siempre en desarrollo, o si ENABLE_LOGS está habilitado)
+    if (this.shouldLog()) {
       console.log('🔧 OllamaClient Configuration:');
       console.log('  Base URL:', this.baseUrl);
       console.log('  Using Direct Ollama:', this.useDirectOllama ? '✅ YES (Same Server)' : '❌ NO');
@@ -147,6 +152,8 @@ ${systemPrompt}
 
 Recuerda: Solo responde con información del conocimiento proporcionado arriba. Si no está ahí, di que no lo sabes.`;
 
+    // Construir el Modelfile con formato correcto
+    // El formato con triple comillas en líneas separadas es el correcto según la documentación de Ollama
     return `FROM ${baseModel}
 
 SYSTEM """
@@ -175,62 +182,81 @@ ${strictInstructions}
         ? `${this.baseUrl}/ollama/api/create`
         : `${this.baseUrl}/api/create`;
 
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('📦 Creating custom model:', modelName);
-        console.log('  Base model:', baseModel);
-        console.log('  API endpoint:', ollamaApiUrl);
-        console.log('  Modelfile content:', modelfileContent);
-        console.log('  System prompt length:', systemPrompt.length);
-      }
+      // Log detallado siempre (también en producción para debugging)
+      console.log('📦 Creating custom model:', modelName);
+      console.log('  Base model:', baseModel);
+      console.log('  API endpoint:', ollamaApiUrl);
+      console.log('  Modelfile content (first 500 chars):', modelfileContent.substring(0, 500));
+      console.log('  Full Modelfile:', modelfileContent);
+      console.log('  System prompt length:', systemPrompt.length);
 
       // Crear el modelo usando la API de Ollama
       // La API requiere 'from' (modelo base) además del 'modelfile'
+      const requestBody = {
+        name: modelName,
+        from: baseModel, // Modelo base requerido por la API
+        modelfile: modelfileContent,
+      };
+      
+      console.log('  Request body:', JSON.stringify(requestBody, null, 2));
+      
       const response = await fetch(ollamaApiUrl, {
         method: 'POST',
         headers: this.getHeaders(),
-        body: JSON.stringify({
-          name: modelName,
-          from: baseModel, // Modelo base requerido por la API
-          modelfile: modelfileContent,
-        }),
+        body: JSON.stringify(requestBody),
       });
 
       if (!response.ok) {
         const errorText = await response.text();
+        console.error('❌ Error creating model. Status:', response.status);
+        console.error('❌ Error response:', errorText);
         
         // Si el modelo ya existe, intentar actualizarlo eliminándolo primero
         if (response.status === 409 || errorText.includes('already exists')) {
-          if (process.env.NODE_ENV !== 'production') {
-            console.log('⚠️ Model already exists, attempting to update...');
-          }
+          console.log('⚠️ Model already exists, attempting to update...');
           
           // Intentar eliminar el modelo existente
           await this.deleteCustomModel(modelName);
           
+          // Esperar un momento antes de reintentar
+          await new Promise(resolve => setTimeout(resolve, 1000));
+          
           // Reintentar crear el modelo
+          console.log('🔄 Retrying model creation...');
           const retryResponse = await fetch(ollamaApiUrl, {
             method: 'POST',
             headers: this.getHeaders(),
-            body: JSON.stringify({
-              name: modelName,
-              from: baseModel, // Modelo base requerido por la API
-              modelfile: modelfileContent,
-            }),
+            body: JSON.stringify(requestBody),
           });
 
           if (!retryResponse.ok) {
             const retryErrorText = await retryResponse.text();
-            console.error('❌ Error creating model after retry:', retryErrorText);
+            console.error('❌ Error creating model after retry. Status:', retryResponse.status);
+            console.error('❌ Error response:', retryErrorText);
             return { success: false, error: retryErrorText };
           }
+          
+          console.log('✅ Model created successfully after retry:', modelName);
         } else {
-          console.error('❌ Error creating model:', errorText);
           return { success: false, error: errorText };
         }
       }
 
-      if (process.env.NODE_ENV !== 'production') {
-        console.log('✅ Custom model created successfully:', modelName);
+      console.log('✅ Custom model created successfully:', modelName);
+      
+      // Verificar que el modelo se creó correctamente y tiene el SYSTEM prompt
+      await new Promise(resolve => setTimeout(resolve, 2000)); // Esperar a que Ollama procese el modelo
+      const verification = await this.getModelModelfile(modelName);
+      if (verification.success && verification.modelfile) {
+        if (verification.modelfile.includes('SYSTEM')) {
+          console.log('✅ Verified: Modelfile contains SYSTEM prompt');
+          console.log('  Modelfile preview:', verification.modelfile.substring(0, 300));
+        } else {
+          console.warn('⚠️ WARNING: Modelfile does not contain SYSTEM prompt!');
+          console.warn('  Modelfile content:', verification.modelfile);
+        }
+      } else {
+        console.warn('⚠️ Could not verify Modelfile:', verification.error);
       }
 
       return { success: true };
@@ -297,14 +323,14 @@ ${strictInstructions}
         return { success: false, error: errorText };
       }
 
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log('🗑️ Custom model deleted:', modelName);
       }
 
       return { success: true };
     } catch (error: any) {
       // No es un error si el modelo no existe
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log('🗑️ Model deletion attempted:', modelName);
       }
       return { success: true };
@@ -351,7 +377,7 @@ ${strictInstructions}
         ? `${this.baseUrl}/api/chat`
         : `${this.baseUrl}/ollama/api/chat`;
       
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log(isCustomModel && this.useDirectOllama && skipSystemPrompt
           ? '🦙 Using Direct Ollama API (Custom Model with Modelfile):'
           : '🦙 Using Ollama API (Custom Model):', endpoint);
@@ -380,7 +406,7 @@ ${strictInstructions}
 
       const data = await response.json();
       
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log('✅ Ollama Response received');
       }
       
@@ -422,7 +448,7 @@ ${strictInstructions}
 
       const endpoint = `${this.baseUrl}/api/chat/completions`;
       
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log('🌐 Using Open WebUI API:', endpoint);
         console.log('📤 Payload:', {
           model: openWebUIPayload.model,
@@ -449,7 +475,7 @@ ${strictInstructions}
 
       const data: OpenWebUIResponse = await response.json();
       
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log('✅ Open WebUI Response received');
       }
       
@@ -468,7 +494,7 @@ ${strictInstructions}
       const endpoint = request.messages ? '/api/chat' : '/api/generate';
       const fullUrl = `${this.baseUrl}${endpoint}`;
       
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log('🦙 Using Local Ollama API:', fullUrl);
       }
       
@@ -505,7 +531,7 @@ ${strictInstructions}
     if (this.isOpenWebUI) {
       const endpoint = `${this.baseUrl}/api/models`;
       
-      if (process.env.NODE_ENV !== 'production') {
+      if (this.shouldLog()) {
         console.log('🌐 Fetching models from Open WebUI:', endpoint);
       }
       

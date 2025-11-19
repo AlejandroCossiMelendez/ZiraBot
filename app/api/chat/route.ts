@@ -119,8 +119,9 @@ Recuerda: Solo responde con información del conocimiento proporcionado arriba. 
           ...conversationHistory
         ];
 
-    // Log de configuración en desarrollo
-    if (process.env.NODE_ENV !== 'production') {
+    // Log de configuración (siempre en desarrollo, o si ENABLE_LOGS está habilitado)
+    const shouldLog = process.env.NODE_ENV !== 'production' || process.env.ENABLE_LOGS === 'true';
+    if (shouldLog) {
       console.log('💬 Chat Request:');
       console.log('  Bot ID:', bot_id);
       console.log('  Model:', modelToUse);
