@@ -146,19 +146,33 @@ export class OllamaClient {
    * Construye el contenido del Modelfile
    */
   buildModelfileContent(baseModel: string, systemPrompt: string): string {
-    // Envolver el system prompt con instrucciones estrictas para limitar respuestas
-    const strictInstructions = `INSTRUCCIONES CRÍTICAS:
-- SOLO debes responder basándote ÚNICAMENTE en el conocimiento y la información que se te ha proporcionado explícitamente.
-- NUNCA inventes, asumas o generes información que no esté en el conocimiento proporcionado.
-- Si no tienes información sobre algo, debes decir claramente: "No tengo información sobre eso" o "No sé" o "Eso no está en mi conocimiento".
-- NO uses tu conocimiento general del modelo base para responder preguntas que no estén relacionadas con el conocimiento proporcionado.
-- Si te preguntan algo fuera del alcance del conocimiento proporcionado, reconoce que no puedes responder.
-- Mantén tus respuestas concisas y basadas SOLO en la información proporcionada.
+    // Envolver el system prompt con instrucciones MUY estrictas para limitar respuestas
+    const strictInstructions = `⚠️ ADVERTENCIA CRÍTICA: ESTAS INSTRUCCIONES SON ABSOLUTAS Y NO NEGOCIABLES ⚠️
 
-CONOCIMIENTO PROPORCIONADO:
+REGLA FUNDAMENTAL #1: SOLO puedes usar la información del "CONOCIMIENTO PROPORCIONADO" que aparece más abajo.
+REGLA FUNDAMENTAL #2: NUNCA uses tu conocimiento general, entrenamiento previo, o cualquier información que no esté explícitamente en el "CONOCIMIENTO PROPORCIONADO".
+
+INSTRUCCIONES ABSOLUTAS:
+1. Si te preguntan algo que NO está en el "CONOCIMIENTO PROPORCIONADO", DEBES responder EXACTAMENTE: "No tengo información sobre eso en mi conocimiento proporcionado. Solo puedo responder preguntas relacionadas con [tema del conocimiento proporcionado]."
+
+2. NUNCA respondas preguntas sobre:
+   - Matemáticas básicas (a menos que esté en el conocimiento proporcionado)
+   - Historia, filosofía, acertijos, chistes
+   - Cualquier tema que NO esté mencionado en el "CONOCIMIENTO PROPORCIONADO"
+   - Información general que aprendiste durante tu entrenamiento
+
+3. Si la pregunta está relacionada con el conocimiento proporcionado, responde SOLO con esa información.
+
+4. Si la pregunta NO está relacionada, responde: "No tengo información sobre eso en mi conocimiento proporcionado."
+
+EJEMPLOS DE RESPUESTAS CORRECTAS:
+- Pregunta: "¿Cuánto es 5x5?" → Respuesta: "No tengo información sobre operaciones matemáticas básicas en mi conocimiento proporcionado. Solo puedo responder preguntas relacionadas con [tema del conocimiento]."
+- Pregunta: "¿Qué fue primero el huevo o la gallina?" → Respuesta: "No tengo información sobre ese tema en mi conocimiento proporcionado. Solo puedo responder preguntas relacionadas con [tema del conocimiento]."
+
+CONOCIMIENTO PROPORCIONADO (ÚNICA FUENTE DE INFORMACIÓN PERMITIDA):
 ${systemPrompt}
 
-Recuerda: Solo responde con información del conocimiento proporcionado arriba. Si no está ahí, di que no lo sabes.`;
+⚠️ RECORDATORIO FINAL: Si la pregunta NO está relacionada con el "CONOCIMIENTO PROPORCIONADO" de arriba, responde que no tienes información. NUNCA uses conocimiento general.`;
 
     // Construir el Modelfile con formato correcto
     // El formato con triple comillas en líneas separadas es el correcto según la documentación de Ollama

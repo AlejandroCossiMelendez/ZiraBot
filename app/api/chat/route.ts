@@ -88,21 +88,41 @@ export async function POST(request: Request) {
       .filter((msg: any) => msg.role !== 'system')
       .map((msg: any) => ({ role: msg.role, content: msg.content }));
     
-    // Preparar system prompt del bot con instrucciones estrictas
+    // Preparar system prompt del bot con instrucciones MUY estrictas
     const baseSystemPrompt = bot.system_prompt || 'You are a helpful assistant.';
+    
+    // Extraer el tema principal del conocimiento para usar en las respuestas
+    const knowledgeTopic = baseSystemPrompt.includes('tecnología') || baseSystemPrompt.includes('desarrollo') || baseSystemPrompt.includes('software')
+      ? 'tecnología, desarrollo de software y arquitectura de sistemas'
+      : 'el tema del conocimiento proporcionado';
+    
     const systemPrompt = bot.system_prompt 
-      ? `INSTRUCCIONES CRÍTICAS:
-- SOLO debes responder basándote ÚNICAMENTE en el conocimiento y la información que se te ha proporcionado explícitamente.
-- NUNCA inventes, asumas o generes información que no esté en el conocimiento proporcionado.
-- Si no tienes información sobre algo, debes decir claramente: "No tengo información sobre eso" o "No sé" o "Eso no está en mi conocimiento".
-- NO uses tu conocimiento general del modelo base para responder preguntas que no estén relacionadas con el conocimiento proporcionado.
-- Si te preguntan algo fuera del alcance del conocimiento proporcionado, reconoce que no puedes responder.
-- Mantén tus respuestas concisas y basadas SOLO en la información proporcionada.
+      ? `⚠️ ADVERTENCIA CRÍTICA: ESTAS INSTRUCCIONES SON ABSOLUTAS Y NO NEGOCIABLES ⚠️
 
-CONOCIMIENTO PROPORCIONADO:
+REGLA FUNDAMENTAL #1: SOLO puedes usar la información del "CONOCIMIENTO PROPORCIONADO" que aparece más abajo.
+REGLA FUNDAMENTAL #2: NUNCA uses tu conocimiento general, entrenamiento previo, o cualquier información que no esté explícitamente en el "CONOCIMIENTO PROPORCIONADO".
+
+INSTRUCCIONES ABSOLUTAS:
+1. Si te preguntan algo que NO está en el "CONOCIMIENTO PROPORCIONADO", DEBES responder EXACTAMENTE: "No tengo información sobre eso en mi conocimiento proporcionado. Solo puedo responder preguntas relacionadas con ${knowledgeTopic}."
+
+2. NUNCA respondas preguntas sobre:
+   - Matemáticas básicas (a menos que esté en el conocimiento proporcionado)
+   - Historia, filosofía, acertijos, chistes
+   - Cualquier tema que NO esté mencionado en el "CONOCIMIENTO PROPORCIONADO"
+   - Información general que aprendiste durante tu entrenamiento
+
+3. Si la pregunta está relacionada con el conocimiento proporcionado, responde SOLO con esa información.
+
+4. Si la pregunta NO está relacionada, responde: "No tengo información sobre eso en mi conocimiento proporcionado."
+
+EJEMPLOS DE RESPUESTAS CORRECTAS:
+- Pregunta: "¿Cuánto es 5x5?" → Respuesta: "No tengo información sobre operaciones matemáticas básicas en mi conocimiento proporcionado. Solo puedo responder preguntas relacionadas con ${knowledgeTopic}."
+- Pregunta: "¿Qué fue primero el huevo o la gallina?" → Respuesta: "No tengo información sobre ese tema en mi conocimiento proporcionado. Solo puedo responder preguntas relacionadas con ${knowledgeTopic}."
+
+CONOCIMIENTO PROPORCIONADO (ÚNICA FUENTE DE INFORMACIÓN PERMITIDA):
 ${baseSystemPrompt}
 
-Recuerda: Solo responde con información del conocimiento proporcionado arriba. Si no está ahí, di que no lo sabes.`
+⚠️ RECORDATORIO FINAL: Si la pregunta NO está relacionada con el "CONOCIMIENTO PROPORCIONADO" de arriba, responde que no tienes información. NUNCA uses conocimiento general.`
       : 'You are a helpful assistant. Only respond based on the information explicitly provided to you. If you do not have information about something, clearly state "I do not have information about that" or "I do not know".';
     
     // IMPORTANTE: Siempre enviar el system prompt explícitamente
