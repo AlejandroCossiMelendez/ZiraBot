@@ -88,8 +88,22 @@ export async function POST(request: Request) {
       .filter((msg: any) => msg.role !== 'system')
       .map((msg: any) => ({ role: msg.role, content: msg.content }));
     
-    // Preparar system prompt del bot
-    const systemPrompt = bot.system_prompt || 'You are a helpful assistant.';
+    // Preparar system prompt del bot con instrucciones estrictas
+    const baseSystemPrompt = bot.system_prompt || 'You are a helpful assistant.';
+    const systemPrompt = bot.system_prompt 
+      ? `INSTRUCCIONES CRÍTICAS:
+- SOLO debes responder basándote ÚNICAMENTE en el conocimiento y la información que se te ha proporcionado explícitamente.
+- NUNCA inventes, asumas o generes información que no esté en el conocimiento proporcionado.
+- Si no tienes información sobre algo, debes decir claramente: "No tengo información sobre eso" o "No sé" o "Eso no está en mi conocimiento".
+- NO uses tu conocimiento general del modelo base para responder preguntas que no estén relacionadas con el conocimiento proporcionado.
+- Si te preguntan algo fuera del alcance del conocimiento proporcionado, reconoce que no puedes responder.
+- Mantén tus respuestas concisas y basadas SOLO en la información proporcionada.
+
+CONOCIMIENTO PROPORCIONADO:
+${baseSystemPrompt}
+
+Recuerda: Solo responde con información del conocimiento proporcionado arriba. Si no está ahí, di que no lo sabes.`
+      : 'You are a helpful assistant. Only respond based on the information explicitly provided to you. If you do not have information about something, clearly state "I do not have information about that" or "I do not know".';
     
     // Verificar si estamos usando API directa de Ollama (mismo servidor)
     // Si es así y tenemos modelo personalizado, confiar en el Modelfile
@@ -121,9 +135,10 @@ export async function POST(request: Request) {
 
     // Generar respuesta con Ollama
     // Convertir valores numéricos a números (pueden venir como strings desde la DB)
+    // Usar temperatura más baja por defecto (0.3) para respuestas más deterministas y controladas
     const temperature = typeof bot.temperature === 'string' 
       ? parseFloat(bot.temperature) 
-      : (bot.temperature ?? 0.7);
+      : (bot.temperature ?? 0.3);
     const maxTokens = typeof bot.max_tokens === 'string'
       ? parseInt(bot.max_tokens, 10)
       : (bot.max_tokens ?? 2000);

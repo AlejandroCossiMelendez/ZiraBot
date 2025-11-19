@@ -133,10 +133,24 @@ export class OllamaClient {
    * Construye el contenido del Modelfile
    */
   buildModelfileContent(baseModel: string, systemPrompt: string): string {
+    // Envolver el system prompt con instrucciones estrictas para limitar respuestas
+    const strictInstructions = `INSTRUCCIONES CRÍTICAS:
+- SOLO debes responder basándote ÚNICAMENTE en el conocimiento y la información que se te ha proporcionado explícitamente.
+- NUNCA inventes, asumas o generes información que no esté en el conocimiento proporcionado.
+- Si no tienes información sobre algo, debes decir claramente: "No tengo información sobre eso" o "No sé" o "Eso no está en mi conocimiento".
+- NO uses tu conocimiento general del modelo base para responder preguntas que no estén relacionadas con el conocimiento proporcionado.
+- Si te preguntan algo fuera del alcance del conocimiento proporcionado, reconoce que no puedes responder.
+- Mantén tus respuestas concisas y basadas SOLO en la información proporcionada.
+
+CONOCIMIENTO PROPORCIONADO:
+${systemPrompt}
+
+Recuerda: Solo responde con información del conocimiento proporcionado arriba. Si no está ahí, di que no lo sabes.`;
+
     return `FROM ${baseModel}
 
 SYSTEM """
-${systemPrompt}
+${strictInstructions}
 """
 `;
   }

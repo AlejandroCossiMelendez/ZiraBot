@@ -53,7 +53,7 @@ export async function POST(request: Request) {
     const result = await query(
       `INSERT INTO bots (company_id, name, description, model, custom_model_name, system_prompt, temperature, max_tokens) 
        VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-      [company_id, name, description, model, modelToUse, system_prompt, temperature || 0.7, max_tokens || 2000]
+      [company_id, name, description, model, modelToUse, system_prompt, temperature || 0.3, max_tokens || 2000]
     );
 
     const newBot = await queryOne('SELECT * FROM bots WHERE id = ?', [(result as any).insertId]);
