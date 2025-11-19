@@ -69,6 +69,11 @@ function ChatPageContent() {
         }),
       });
 
+      if (!res.ok) {
+        const errorData = await res.json().catch(() => ({ error: 'Error desconocido' }));
+        throw new Error(errorData.error || `Error ${res.status}: ${res.statusText}`);
+      }
+
       const data = await res.json();
 
       if (data.error) {
@@ -80,9 +85,10 @@ function ChatPageContent() {
       }
 
       setMessages(prev => [...prev, { role: 'assistant', content: data.response }]);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Chat error:', error);
-      setMessages(prev => [...prev, { role: 'assistant', content: 'Error: No se pudo obtener respuesta del bot.' }]);
+      const errorMessage = error.message || 'No se pudo obtener respuesta del bot.';
+      setMessages(prev => [...prev, { role: 'assistant', content: `Error: ${errorMessage}` }]);
     } finally {
       setLoading(false);
     }

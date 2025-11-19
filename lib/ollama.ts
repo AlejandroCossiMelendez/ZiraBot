@@ -453,10 +453,12 @@ ${strictInstructions}
           temperature: temperature,
           num_predict: numPredict,
           // Optimizaciones para respuestas más rápidas
-          num_ctx: 2048, // Reducir contexto para acelerar (por defecto es 2048, pero lo especificamos)
+          num_ctx: 4096, // Contexto suficiente pero no excesivo
           repeat_penalty: 1.1, // Penalizar repeticiones para respuestas más concisas
           top_k: 40, // Reducir top_k para acelerar la generación
           top_p: 0.9, // Mantener top_p para calidad
+          // Parámetros adicionales para acelerar
+          num_thread: undefined, // Dejar que Ollama use todos los threads disponibles
         },
       };
 
@@ -477,9 +479,10 @@ ${strictInstructions}
         });
       }
 
-      // Crear un AbortController para timeout de 15 segundos
+      // Crear un AbortController para timeout de 30 segundos
+      // 30 segundos debería ser suficiente para la mayoría de respuestas
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
+      const timeoutId = setTimeout(() => controller.abort(), 90000); // 30 segundos timeout
 
       try {
         const response = await fetch(endpoint, {
@@ -516,9 +519,11 @@ ${strictInstructions}
       } catch (error: any) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
-          console.error('⏱️ Request timeout after 15 seconds');
-          throw new Error('La solicitud tardó demasiado tiempo. Por favor, intenta con una pregunta más corta o reduce max_tokens.');
+          console.error('⏱️ Request timeout after 30 seconds');
+          throw new Error('La solicitud tardó demasiado tiempo (más de 30 segundos). Por favor, intenta con una pregunta más corta o reduce max_tokens.');
         }
+        // Log del error completo para debugging
+        console.error('❌ Error en generate:', error);
         throw error;
       }
     }
