@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, Suspense } from 'react';
 import { useSearchParams } from 'next/navigation';
 import useSWR from 'swr';
 import { Send, Bot, User, RefreshCw } from 'lucide-react';
@@ -18,7 +18,7 @@ interface Message {
   content: string;
 }
 
-export default function ChatPage() {
+function ChatPageContent() {
   const searchParams = useSearchParams();
   const initialBotId = searchParams.get('bot');
   
@@ -213,5 +213,20 @@ export default function ChatPage() {
         </CardContent>
       </Card>
     </div>
+  );
+}
+
+export default function ChatPage() {
+  return (
+    <Suspense fallback={
+      <div className="h-[calc(100vh-4rem)] flex items-center justify-center">
+        <div className="text-center">
+          <RefreshCw className="w-8 h-8 mx-auto mb-4 animate-spin text-muted-foreground" />
+          <p className="text-muted-foreground">Cargando chat...</p>
+        </div>
+      </div>
+    }>
+      <ChatPageContent />
+    </Suspense>
   );
 }
