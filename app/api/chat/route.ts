@@ -89,6 +89,13 @@ export async function POST(request: Request) {
       .filter((msg: any) => msg.role !== 'system')
       .map((msg: any) => ({ role: msg.role, content: msg.content }));
     
+    // Calcular max_tokens primero (antes de construir el system prompt)
+    // IMPORTANTE: max_tokens limita la CANTIDAD DE TOKENS que el modelo puede GENERAR en la respuesta
+    // No limita el contexto de entrada, solo la salida
+    const maxTokens = typeof bot.max_tokens === 'string'
+      ? parseInt(bot.max_tokens, 10)
+      : (bot.max_tokens ?? 500);
+    
     // Preparar system prompt del bot con instrucciones MUY estrictas
     const baseSystemPrompt = bot.system_prompt || 'You are a helpful assistant.';
     
@@ -97,11 +104,20 @@ export async function POST(request: Request) {
       ? 'tecnología, desarrollo de software y arquitectura de sistemas'
       : 'el tema del conocimiento proporcionado';
     
+    // Calcular instrucciones sobre límite de tokens basado en maxTokens
+    const tokenLimitInstruction = maxTokens <= 300 
+      ? `IMPORTANTE: Tienes un límite de aproximadamente ${maxTokens} tokens para tu respuesta. Mantén tus respuestas CONCISAS y directas. Si necesitas dar información extensa, prioriza los puntos más importantes y termina tu respuesta de forma natural antes de alcanzar el límite.`
+      : maxTokens <= 500
+      ? `IMPORTANTE: Tienes un límite de aproximadamente ${maxTokens} tokens para tu respuesta. Mantén tus respuestas claras y completas, pero termina de forma natural antes de alcanzar el límite.`
+      : `IMPORTANTE: Tienes un límite de aproximadamente ${maxTokens} tokens para tu respuesta. Asegúrate de terminar tu respuesta de forma natural y completa antes de alcanzar este límite.`;
+    
     const systemPrompt = bot.system_prompt 
       ? `⚠️ ADVERTENCIA CRÍTICA: ESTAS INSTRUCCIONES SON ABSOLUTAS Y NO NEGOCIABLES ⚠️
 
 REGLA FUNDAMENTAL #1: SOLO puedes usar la información del "CONOCIMIENTO PROPORCIONADO" que aparece más abajo.
 REGLA FUNDAMENTAL #2: NUNCA uses tu conocimiento general, entrenamiento previo, o cualquier información que no esté explícitamente en el "CONOCIMIENTO PROPORCIONADO".
+
+${tokenLimitInstruction}
 
 INSTRUCCIONES ABSOLUTAS:
 1. Si te preguntan algo que NO está en el "CONOCIMIENTO PROPORCIONADO", DEBES responder EXACTAMENTE: "No tengo información sobre eso en mi conocimiento proporcionado. Solo puedo responder preguntas relacionadas con ${knowledgeTopic}."
@@ -123,7 +139,7 @@ EJEMPLOS DE RESPUESTAS CORRECTAS:
 CONOCIMIENTO PROPORCIONADO (ÚNICA FUENTE DE INFORMACIÓN PERMITIDA):
 ${baseSystemPrompt}
 
-⚠️ RECORDATORIO FINAL: Si la pregunta NO está relacionada con el "CONOCIMIENTO PROPORCIONADO" de arriba, responde que no tienes información. NUNCA uses conocimiento general.`
+⚠️ RECORDATORIO FINAL: Si la pregunta NO está relacionada con el "CONOCIMIENTO PROPORCIONADO" de arriba, responde que no tienes información. NUNCA uses conocimiento general. Respeta el límite de tokens y termina tu respuesta de forma natural.`
       : 'You are a helpful assistant. Only respond based on the information explicitly provided to you. If you do not have information about something, clearly state "I do not have information about that" or "I do not know".';
     
     // IMPORTANTE: Siempre enviar el system prompt explícitamente
@@ -159,34 +175,36 @@ ${baseSystemPrompt}
       ? parseFloat(bot.temperature) 
       : (bot.temperature ?? 0.3);
     
-    // Calcular max_tokens de forma inteligente
-    // Si el usuario configuró un valor muy bajo (< 500), aumentarlo automáticamente para evitar respuestas cortadas
-    // Esto balancea velocidad con completitud de respuestas
-    let maxTokens = typeof bot.max_tokens === 'string'
-      ? parseInt(bot.max_tokens, 10)
-      : (bot.max_tokens ?? 500);
-    
-    // Si max_tokens es muy bajo, aumentarlo automáticamente para evitar respuestas cortadas
-    // 500 es un buen balance entre velocidad y completitud
-    if (maxTokens < 500) {
-      if (shouldLog) {
-        console.log(`⚠️ max_tokens (${maxTokens}) es muy bajo, aumentando a 500 para evitar respuestas cortadas`);
-      }
-      maxTokens = 500;
-    }
+    // Reducir ligeramente num_predict para dejar un margen y que el modelo termine la respuesta de forma natural
+    // Esto evita que se corte a mitad de frase
+    // Usar 95% del límite para margen de seguridad
+    const numPredict = Math.max(50, Math.floor(maxTokens * 0.95));
 
     // Siempre enviar el system prompt explícitamente (no confiar en Modelfile)
     // skipSystemPrompt=false para que siempre se incluya el system prompt en los mensajes
+    // Usar numPredict (95% del límite) en lugar de maxTokens para dejar margen
     const response = await ollama.generate({
       model: modelToUse,
       messages: ollamaMessages as any,
       options: {
         temperature: temperature,
-        num_predict: maxTokens
+        num_predict: numPredict // Usar 95% del límite para margen de seguridad
       }
     }, false); // Siempre false - siempre enviar system prompt explícitamente
 
     const assistantMessage = response.message?.content || '';
+    
+    // Verificar si la respuesta se cortó (si done es false, significa que se cortó por límite de tokens)
+    // También verificamos si la respuesta termina abruptamente sin puntuación final
+    const isTruncated = !response.done || 
+                       (assistantMessage.length > 0 && 
+                        !assistantMessage.match(/[.!?]\s*$/) && 
+                        assistantMessage.length > maxTokens * 0.9); // Si usa más del 90% de tokens, probablemente se cortó
+    
+    if (isTruncated && shouldLog) {
+      console.warn(`⚠️ Respuesta posiblemente cortada. Longitud: ${assistantMessage.length} chars, max_tokens: ${maxTokens}`);
+      console.warn(`   💡 Considera aumentar max_tokens a ${Math.min(maxTokens * 2, 2000)} para respuestas más completas`);
+    }
 
     // Guardar respuesta del asistente
     await query(

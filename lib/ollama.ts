@@ -508,7 +508,8 @@ ${strictInstructions}
         }
         
         // Convertir respuesta de Ollama al formato esperado
-        return {
+        // done: false indica que la respuesta se cortó por límite de tokens
+        const responseData = {
           model: data.model || request.model,
           created_at: data.created_at || new Date().toISOString(),
           message: {
@@ -517,6 +518,14 @@ ${strictInstructions}
           },
           done: data.done ?? true,
         };
+        
+        // Log si la respuesta se cortó
+        if (!responseData.done && this.shouldLog()) {
+          console.warn('⚠️ Respuesta cortada por límite de tokens (done: false)');
+          console.warn(`   💡 Considera aumentar num_predict (max_tokens) para respuestas más completas`);
+        }
+        
+        return responseData;
       } catch (error: any) {
         clearTimeout(timeoutId);
         if (error.name === 'AbortError') {
