@@ -158,9 +158,22 @@ ${baseSystemPrompt}
     const temperature = typeof bot.temperature === 'string' 
       ? parseFloat(bot.temperature) 
       : (bot.temperature ?? 0.3);
-    const maxTokens = typeof bot.max_tokens === 'string'
+    
+    // Calcular max_tokens de forma inteligente
+    // Si el usuario configuró un valor muy bajo (< 500), aumentarlo automáticamente para evitar respuestas cortadas
+    // Esto balancea velocidad con completitud de respuestas
+    let maxTokens = typeof bot.max_tokens === 'string'
       ? parseInt(bot.max_tokens, 10)
-      : (bot.max_tokens ?? 2000);
+      : (bot.max_tokens ?? 500);
+    
+    // Si max_tokens es muy bajo, aumentarlo automáticamente para evitar respuestas cortadas
+    // 500 es un buen balance entre velocidad y completitud
+    if (maxTokens < 500) {
+      if (shouldLog) {
+        console.log(`⚠️ max_tokens (${maxTokens}) es muy bajo, aumentando a 500 para evitar respuestas cortadas`);
+      }
+      maxTokens = 500;
+    }
 
     // Siempre enviar el system prompt explícitamente (no confiar en Modelfile)
     // skipSystemPrompt=false para que siempre se incluya el system prompt en los mensajes
